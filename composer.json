@@ -1,0 +1,26 @@
+{
+    "name": "agelxnash/jevix",
+    "description": "Library for html filtering",
+    "authors": [
+        {
+            "name": "ur001"
+        },
+		{
+			"name" : "livestreet framework"
+		},
+		{
+			"name" : "Bezumkin"
+		},
+        {
+            "name": "Roman Shamritskiy",
+            "email": "roman@litgroup.ru"
+        }
+    ],
+    "autoload": {
+        "psr-0": { "Jevix": "lib/" }
+    },
+
+    "require": {
+
+    }
+}
