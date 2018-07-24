@@ -123,6 +123,7 @@ class Jevix{
 	protected $tagsStack;
 	protected $openedTag;
 	protected $autoReplace; // Автозамена
+	protected $autoPregReplace; // Автозамена с поддержкой регулярных выражений
 	protected $isXHTMLMode  = true; // <br/>, <img/>
 	protected $isAutoBrMode = true; // \n = <br/>
 	protected $isAutoLinkMode = true;
@@ -352,6 +353,16 @@ class Jevix{
 	}
 
 	/**
+	 * Автозамена с поддержкой регулярных выражений
+	 *
+	 * @param array $from с
+	 * @param array $to на
+	 */
+	function cfgSetAutoPregReplace($from, $to){
+		$this->autoPregReplace = array('from' => $from, 'to' => $to);
+	}
+
+	/**
 	 * Включение или выключение режима XTML
 	 *
 	 * @param boolean $isXHTMLMode
@@ -395,6 +406,21 @@ class Jevix{
 		$this->quotesOpened = 0;
 		$this->noTypoMode = false;
 
+		// Автозамена с регулярными выражениями
+		$replacements = array();
+		if(!empty($this->autoPregReplace)){
+			foreach ($this->autoPregReplace['from'] as $k => $v) {
+				preg_match_all($v, $text, $matches);
+				foreach ($matches[0] as $from) {
+					$to = preg_replace($v, $this->autoPregReplace['to'][$k], $from);
+					$hash = sha1(serialize($from));
+
+					$replacements[$hash] = $to;
+					$text = str_replace($from, $hash, $text);
+				}
+			}
+		}
+
 		// Авто растановка BR?
 		if($this->isAutoBrMode) {
 			$this->text = preg_replace('/<br\/?>(\r\n|\n\r|\n)?/ui', $this->nl, $text);
@@ -402,10 +428,6 @@ class Jevix{
 			$this->text = $text;
 		}
 
-
-		if(!empty($this->autoReplace)){
-			$this->text = str_ireplace($this->autoReplace['from'], $this->autoReplace['to'], $this->text);
-		}
 		$this->textBuf = $this->strToArray($this->text);
 		$this->textLen = count($this->textBuf);
 		$this->getCh();
@@ -418,6 +440,15 @@ class Jevix{
 		$this->skipSpaces();
 		$this->anyThing($content);
 		$errors = $this->errors;
+
+		if(!empty($this->autoReplace)){
+			$content = str_ireplace($this->autoReplace['from'], $this->autoReplace['to'], $content);
+		}
+
+		if (!empty($replacements)) {
+			$content = str_replace(array_keys($replacements), $replacements, $content);
+		}
+
 		return $content;
 	}
 
@@ -710,8 +741,13 @@ class Jevix{
 	}
 
 	protected function preformatted(&$content = '', $insideTag = null){
+		$tmp = '';
+		$tmp_content = '';
+		$start = $this->curPos;
+		$depth = 0;
 		while($this->curChClass){
 			if($this->curCh == '<'){
+				$tmp = '';
 				$tag = '';
 				$this->saveState();
 				// Пытаемся найти закрывающийся тег
@@ -719,8 +755,36 @@ class Jevix{
 				// Возвращаемся назад, если тег был найден
 				if($isClosedTag) $this->restoreState();
 				// Если закрылось то, что открылось - заканчиваем и возвращаем true
-				if($isClosedTag && $tag == $insideTag) return;
+				if($isClosedTag && $tag == $insideTag) {
+					// Если закрыли все открытые теги -
+					if ($depth === 0) {
+						// Сохраняем буфер и выходим
+						$content .= $tmp_content;
+						return;
+					}
+					else {
+						$depth --;
+					}
+				}
 			}
+			// Открыт ноый preformatted тег
+			elseif ($this->curCh == '>' && $tmp == $insideTag) {
+				$depth ++;
+			}
+			else {
+				$tmp .= $this->curCh;
+			}
+			$tmp_content.= isset($this->entities2[$this->curCh]) ? $this->entities2[$this->curCh] : $this->curCh;
+			$this->getCh();
+		}
+
+		// Это на случай незакрытых вложенных тегов
+		$this->goToPosition($start);
+		while ($this->curChClass) {
+			$tag = '';
+			$isClosedTag = $this->tagClose($tag);
+			if($isClosedTag) $this->restoreState();
+			if($isClosedTag && $tag == $insideTag) {return;}
 			$content.= isset($this->entities2[$this->curCh]) ? $this->entities2[$this->curCh] : $this->curCh;
 			$this->getCh();
 		}
@@ -934,32 +998,58 @@ class Jevix{
 
 					case '#link':
 						// Ява-скрипт в ссылке
-						if(preg_match('/javascript:/ui', $value)) {
+						if (preg_match('/javascript:/ui', $value)) {
 							$this->eror('Попытка вставить JavaScript в URI');
 							continue(2);
 						}
-						// Первый символ должен быть a-z0-9 или #!
-						if(!preg_match('/^[a-z0-9\/\#]/ui', $value)) {
+						// Первый символ должен быть a-z, 0-9, #, / или точка
+						elseif (!preg_match('/^[a-z0-9\/\#\.]/ui', $value)) {
 							$this->eror('URI: Первый символ адреса должен быть буквой или цифрой');
 							continue(2);
 						}
-						// HTTP в начале если нет
-						if(!preg_match('/^(http|https|ftp):\/\//ui', $value) && !preg_match('/^(\/|\#)/ui', $value) ) $value = 'http://'.$value;
+						// Если в ссылке указан email
+						elseif (preg_match('/.+@.+\..+/i', $value)) {
+							// Но нет протокола - добавляем
+							if (!preg_match('/^(mailto):/ui', $value)) {
+								$value = 'mailto:'.$value;
+							}
+						}
+						// Пропускаем относительные url и ipv6
+						elseif (preg_match('/^(\.\.\/|\/)/ui', $value)) {
+							break;
+						}
+						// Если нет указания протокола:
+						elseif (!preg_match('/^(http|https|ftp):\/\//ui', $value)) {
+							// Но адрес похож на домен
+							if (preg_match('/\.[a-z]{2,}+/ui', $value)) {
+								$value = 'http://'.$value;
+							}
+							else {
+								//$value = '/'.$value;
+							}
+						}
 						break;
 
 					case '#image':
 						// Ява-скрипт в пути к картинке
-						if(preg_match('/javascript:/ui', $value)) {
+						if (preg_match('/javascript:/ui', $value)) {
 							$this->eror('Попытка вставить JavaScript в пути к изображению');
 							continue(2);
 						}
-						// HTTP в начале если нет
-						if(!preg_match('/^(http|https):\/\//ui', $value) && !preg_match('/^\//ui', $value)) $value = 'http://'.$value;
-						break;
-
-					default:
-						$this->eror("Неверное описание атрибута тега в настройке Jevix: $param => $paramAllowedValues");
-						continue(2);
+						// Пропускаем относительные url и ipv6
+						elseif (preg_match('/^(\.\.\/|\/)/ui', $value)) {
+							break;
+						}
+						// Если нет указания протокола:
+						elseif (!preg_match('/^(http|https):\/\//ui', $value)) {
+							// Но адрес похож на домен с картинкой, то добавляем http
+							if (preg_match('/\.[a-z]{2,}+.*\./ui', $value)) {
+								$value = 'http://'.$value;
+							}
+							else {
+								//$value = '/'.$value;
+							}
+						}
 						break;
 				}
 			}
@@ -1306,9 +1396,9 @@ class Jevix{
 		$url = '';
 		//$name = $this->name();
 		//switch($name)
-		$urlChMask = self::URL | self::ALPHA;
+		$urlChMask = self::URL | self::ALPHA | self::PUNCTUATUON;
 
-		if($this->matchStr('http://')){
+		if ($this->matchStr('http://')) {
 			while($this->curChClass & $urlChMask){
 				$url.= $this->curCh;
 				$this->getCh();
@@ -1320,8 +1410,21 @@ class Jevix{
 			}
 
 			$href = 'http://'.$url;
-			return true;
-		} elseif($this->matchStr('www.')){
+		}
+		elseif ($this->matchStr('https://')) {
+			while($this->curChClass & $urlChMask){
+				$url.= $this->curCh;
+				$this->getCh();
+			}
+
+			if(!mb_strlen($url, 'UTF-8')) {
+				$this->restoreState();
+				return false;
+			}
+
+			$href = 'https://'.$url;
+		}
+		elseif ($this->matchStr('www.')) {
 			while($this->curChClass & $urlChMask){
 				$url.= $this->curCh;
 				$this->getCh();
@@ -1334,10 +1437,20 @@ class Jevix{
 
 			$url = 'www.'.$url;
 			$href = 'http://'.$url;
+		}
+		if (!empty($url)) {
+			if (preg_match('/[\.\,\-\?\!\:\;]+$/', $url, $matches)) {
+				$count = strlen($matches[0]);
+				$url = substr($url, 0, $count * -1);
+				$href = substr($href, 0, $count * -1);
+				$this->goToPosition($this->curPos - $count);
+			}
 			return true;
 		}
-		$this->restoreState();
-		return false;
+		else {
+			$this->restoreState();
+			return false;
+		}
 	}
 
 	protected function eror($message){
