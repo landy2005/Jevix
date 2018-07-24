@@ -7,7 +7,7 @@
  * http://code.google.com/p/jevix/
  *
  * @author ur001 <ur001ur001@gmail.com>, http://ur001.habrahabr.ru
- * @version 1.01
+ * @version 1.11
  *
  * История версий:
  * 1.11:
@@ -55,40 +55,40 @@
  *  + Добавлена настройка автодобавления параметров тегов. Непример rel = "nofolow" для ссылок.
  *    Спасибо Myroslav Holyak (vbhjckfd@gmail.com)
  * 0.93
- *      + Исправлен баг с удалением пробелов (например в "123 &mdash; 123")
+ *  + Исправлен баг с удалением пробелов (например в "123 &mdash; 123")
  *  + Исправлена ошибка из-за которой иногда не срабатывало автоматическое преобразования URL в ссылу
  *  + Добавлена настройка cfgSetAutoLinkMode для отключения автоматического преобразования URL в ссылки
  *  + Автодобавление пробела после точки, если после неё идёт русский символ
  * 0.92
- *      + Добавлена настройка cfgSetAutoBrMode. При установке в false, переносы строк не будут автоматически заменяться на BR
- *      + Изменена обработка HTML-сущностей. Теперь все сущности имеющие эквивалент в Unicode (за исключением <>)
+ *  + Добавлена настройка cfgSetAutoBrMode. При установке в false, переносы строк не будут автоматически заменяться на BR
+ *  + Изменена обработка HTML-сущностей. Теперь все сущности имеющие эквивалент в Unicode (за исключением <>)
  *    автоматически преобразуются в символ
  * 0.91
- *      + Добавлена обработка преформатированных тегов <pre>, <code>. Для задания используйте cfgSetTagPreformatted()
+ *  + Добавлена обработка преформатированных тегов <pre>, <code>. Для задания используйте cfgSetTagPreformatted()
  *  + Добавлена настройка cfgSetXHTMLMode. При отключении пустые теги будут оформляться как <br>, при включенном - <br/>
- *      + Несколько незначительных багфиксов
+ *  + Несколько незначительных багфиксов
  * 0.9
- *      + Первый бета-релиз
+ *  + Первый бета-релиз
  */
 
 class Jevix{
-	const PRINATABLE  = 0x1;
-	const ALPHA       = 0x2;
-	const LAT	 = 0x4;
-	const RUS	 = 0x8;
-	const NUMERIC     = 0x10;
-	const SPACE       = 0x20;
-	const NAME	= 0x40;
-	const URL	 = 0x100;
-	const NOPRINT     = 0x200;
-	const PUNCTUATUON = 0x400;
-	//const	   = 0x800;
-	//const	   = 0x1000;
-	const HTML_QUOTE  = 0x2000;
-	const TAG_QUOTE   = 0x4000;
-	const QUOTE_CLOSE = 0x8000;
-	const NL	  = 0x10000;
-	const QUOTE_OPEN  = 0;
+	const PRINATABLE    = 0x1;
+	const ALPHA         = 0x2;
+	const LAT           = 0x4;
+	const RUS           = 0x8;
+	const NUMERIC       = 0x10;
+	const SPACE         = 0x20;
+	const NAME          = 0x40;
+	const URL           = 0x100;
+	const NOPRINT       = 0x200;
+	const PUNCTUATUON   = 0x400;
+	//const	              = 0x800;
+	//const	              = 0x1000;
+	const HTML_QUOTE    = 0x2000;
+	const TAG_QUOTE     = 0x4000;
+	const QUOTE_CLOSE   = 0x8000;
+	const NL            = 0x10000;
+	const QUOTE_OPEN    = 0;
 
 	const STATE_TEXT = 0;
 	const STATE_TAG_PARAMS = 1;
@@ -167,14 +167,18 @@ class Jevix{
 	 *
 	 * @param array|string $tags тег(и)
 	 * @param int $flag флаг
-	 * @param mixed $value значеник=е флага
-	 * @param boolean $createIfNoExists если тег ещё не определён - создть его
+	 * @param mixed $value значение флага
+	 * @param boolean $createIfNotExists если тег ещё не определён - создать его
+         *
+         * @throws Exception
 	 */
-	protected function _cfgSetTagsFlag($tags, $flag, $value, $createIfNoExists = true){
-		if(!is_array($tags)) $tags = array($tags);
+	protected function _cfgSetTagsFlag($tags, $flag, $value, $createIfNotExists = true){
+                if (!is_array($tags)) {
+                    $tags = array($tags);
+                }
 		foreach($tags as $tag){
 			if(!isset($this->tagsRules[$tag])) {
-				if($createIfNoExists){
+				if ($createIfNotExists) {
 					$this->tagsRules[$tag] = array();
 				} else {
 					throw new Exception("Тег $tag отсутствует в списке разрешённых тегов");
@@ -428,6 +432,15 @@ class Jevix{
 			$this->text = $text;
 		}
 
+
+		if(!empty($this->autoReplace)){
+			$this->text = str_ireplace($this->autoReplace['from'], $this->autoReplace['to'], $this->text);
+		}
+
+		if (!empty($replacements)) {
+			$this->text = str_replace(array_keys($replacements), $replacements, $this->text);
+		}
+
 		$this->textBuf = $this->strToArray($this->text);
 		$this->textLen = count($this->textBuf);
 		$this->getCh();
@@ -440,14 +453,6 @@ class Jevix{
 		$this->skipSpaces();
 		$this->anyThing($content);
 		$errors = $this->errors;
-
-		if(!empty($this->autoReplace)){
-			$content = str_ireplace($this->autoReplace['from'], $this->autoReplace['to'], $content);
-		}
-
-		if (!empty($replacements)) {
-			$content = str_replace(array_keys($replacements), $replacements, $content);
-		}
 
 		return $content;
 	}
@@ -728,7 +733,7 @@ class Jevix{
 
 		$isTagClose = $this->tagClose($closeTag);
 		if($isTagClose && ($tag != $closeTag)) {
-			$this->eror("Неверный закрывающийся тег $closeTag. Ожидалось закрытие $tag");
+			$this->error("Неверный закрывающийся тег $closeTag. Ожидалось закрытие $tag");
 			//$this->restoreState();
 		}
 
@@ -987,7 +992,7 @@ class Jevix{
 				switch($paramAllowedValues){
 					case '#int':
 						if(!is_numeric($value)) {
-							$this->eror("Недопустимое значение для атрибута тега $tag $param=$value. Ожидалось число");
+							$this->error("Недопустимое значение для атрибута тега $tag $param=$value. Ожидалось число");
 							continue(2);
 						}
 						break;
@@ -999,12 +1004,12 @@ class Jevix{
 					case '#link':
 						// Ява-скрипт в ссылке
 						if (preg_match('/javascript:/ui', $value)) {
-							$this->eror('Попытка вставить JavaScript в URI');
+						        $this->error('Попытка вставить JavaScript в URI');
 							continue(2);
 						}
 						// Первый символ должен быть a-z, 0-9, #, / или точка
 						elseif (!preg_match('/^[a-z0-9\/\#\.]/ui', $value)) {
-							$this->eror('URI: Первый символ адреса должен быть буквой или цифрой');
+							$this->error('URI: Первый символ адреса должен быть буквой или цифрой');
 							continue(2);
 						}
 						// Если в ссылке указан email
@@ -1033,7 +1038,7 @@ class Jevix{
 					case '#image':
 						// Ява-скрипт в пути к картинке
 						if (preg_match('/javascript:/ui', $value)) {
-							$this->eror('Попытка вставить JavaScript в пути к изображению');
+							$this->error('Попытка вставить JavaScript в пути к изображению');
 							continue(2);
 						}
 						// Пропускаем относительные url и ipv6
@@ -1075,7 +1080,7 @@ class Jevix{
 		      }
 		  }
 		}
-		
+
 		// Пустой некороткий тег удаляем кроме исключений
 		if (!isset($tagRules[self::TR_TAG_IS_EMPTY]) or !$tagRules[self::TR_TAG_IS_EMPTY]) {
 			if(!$short && $content == '') return '';
@@ -1089,7 +1094,7 @@ class Jevix{
 				$text.=' '.$param.'="'.$value.'"';
 			}
 		}
-		
+
 		// Закрытие тега (если короткий то без контента)
 		$text.= $short && $this->isXHTMLMode ? '/>' : '>';
 		if(isset($tagRules[self::TR_TAG_CONTAINER])) $text .= "\r\n";
@@ -1148,7 +1153,7 @@ class Jevix{
 						$this->restoreState();
 						return false;
 					} else {
-						$this->eror('Не ожидалось закрывающегося тега '.$name);
+						$this->error('Не ожидалось закрывающегося тега '.$name);
 					}
 				} else {
 					if($this->state != self::STATE_INSIDE_NOTEXT_TAG) $content.=$this->entities2['<'];
@@ -1453,7 +1458,7 @@ class Jevix{
 		}
 	}
 
-	protected function eror($message){
+	protected function error($message){
 		$str = '';
 		$strEnd = min($this->curPos + 8, $this->textLen);
 		for($i = $this->curPos; $i < $strEnd; $i++){
